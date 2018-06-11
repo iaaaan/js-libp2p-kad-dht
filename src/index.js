@@ -22,7 +22,7 @@ const RandomWalk = require('./random-walk')
 const assert = require('assert')
 
 /**
- * A DHT implementation modeled after Kademlia with S/Kademlia modifications.
+ * A DHT implementation modeled after Kademlia with Coral and S/Kademlia modifications.
  *
  * Original implementation in go: https://github.com/libp2p/go-libp2p-kad-dht.
  */
@@ -324,7 +324,8 @@ class KadDHT {
 
         waterfall([
           (cb) => utils.sortClosestPeers(Array.from(res.finalSet), id, cb),
-          (sorted, cb) => cb(null, sorted.slice(0, c.K))
+          this._verifyPeers,
+          (filtered, cb) => cb(null, filtered.slice(0, c.K))
         ], callback)
       })
     })
@@ -400,7 +401,9 @@ class KadDHT {
   // ----------- Content Routing
 
   /**
-   * Announce to the network that we can provide given key's value.
+   * Announce to the network that a node can provide the given key.
+   * This is what Coral and MainlineDHT do to store large values
+   * in a DHT.
    *
    * @param {CID} key
    * @param {function(Error)} callback

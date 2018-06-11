@@ -21,6 +21,7 @@ message Message {
     GET_PROVIDERS = 3;
     FIND_NODE = 4;
     PING = 5;
+    GET_DEFACE_VALUE = 6;
   }
 
   enum ConnectionType {
@@ -53,7 +54,6 @@ message Message {
   optional MessageType type = 1;
 
   // defines what coral cluster level this query/response belongs to.
-  // in case we want to implement coral's cluster rings in the future.
   optional int32 clusterLevelRaw = 10;
 
   // Used to specify the key associated with this message.

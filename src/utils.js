@@ -10,6 +10,7 @@ const Record = require('libp2p-record').Record
 const setImmediate = require('async/setImmediate')
 const PeerId = require('peer-id')
 
+
 /**
  * Creates a DHT ID by hashing a given buffer.
  *
@@ -143,6 +144,7 @@ exports.xorCompare = (a, b) => {
  * @returns {void}
  */
 exports.createPutRecord = (key, value, peer, sign, callback) => {
+
   const rec = new Record(key, value, peer)
 
   if (sign) {

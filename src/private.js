@@ -4,6 +4,7 @@ const PeerId = require('peer-id')
 const libp2pRecord = require('libp2p-record')
 const waterfall = require('async/waterfall')
 const series = require('async/series')
+const filterSeries = require('async/map')
 const each = require('async/each')
 const timeout = require('async/timeout')
 const PeerInfo = require('peer-info')
@@ -295,8 +296,8 @@ module.exports = (dht) => ({
       (cb) => dht.getMany(key, 16, maxTimeout, cb),
       (vals, cb) => {
         const recs = vals.map((v) => v.val)
-        const i = libp2pRecord.selection.bestRecord(dht.selectors, key, recs)
-        const best = recs[i]
+        // const i = libp2pRecord.selection.bestRecord(dht.selectors, key, recs)
+        const best = recs[0]
         dht._log('GetValue %s %s', key.toString(), best)
 
         if (!best) {
@@ -383,7 +384,7 @@ module.exports = (dht) => ({
    */
   _getValueOrPeers (peer, key, callback) {
     waterfall([
-      (cb) => dht._getValueSingle(peer, key, cb),
+      (cb) => dht._getDefaceValueSingle(peer, key, cb),
       (msg, cb) => {
         const peers = msg.closerPeers
         const record = msg.record
@@ -420,6 +421,20 @@ module.exports = (dht) => ({
    */
   _getValueSingle (peer, key, callback) {
     const msg = new Message(Message.TYPES.GET_VALUE, key, 0)
+    dht.network.sendRequest(peer, msg, callback)
+  },
+  /**
+   * Get a Deface value via rpc call for the given parameters.
+   *
+   * @param {PeerId} peer
+   * @param {Buffer} key
+   * @param {function(Error, Message)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _getDefaceValueSingle (peer, key, callback) {
+    const msg = new Message(Message.TYPES.GET_DEFACE_VALUE, key, 0)
     dht.network.sendRequest(peer, msg, callback)
   },
   /**
@@ -566,5 +581,41 @@ module.exports = (dht) => ({
   _findProvidersSingle (peer, key, callback) {
     const msg = new Message(Message.TYPES.GET_PROVIDERS, key.buffer, 0)
     dht.network.sendRequest(peer, msg, callback)
+  },
+  /**
+   * Check verification status of a peer.
+   *
+   * @param {PeerId} peer
+   * @param {function(Error, Array<PeerId>)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _verifyPeers (peerIds, callback) {
+    filterSeries(
+      peerIds,
+      (peerId, cb) => {
+        if (peerId.isEqual(dht.peerInfo.id)) {
+          return cb(null, true)
+        }
+
+        const id = peerId.toB58String()
+        console.log('verifying', id)
+        const xhr = new XMLHttpRequest()
+        const url = `https://defaceapp.herokuapp.com/user?id=${id}`
+        xhr.open("GET", url, true)
+        xhr.addEventListener('load', () => {
+          const response = JSON.parse(xhr.responseText)
+          const {
+            tickets
+          } = response
+          cb(null, tickets > 0)
+        })
+        xhr.send()
+      },
+      (err, results) => {
+        callback(null, peerIds.filter((id, j) => results[j]))
+      }
+    )
   }
 })
