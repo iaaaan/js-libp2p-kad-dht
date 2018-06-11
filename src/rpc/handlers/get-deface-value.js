@@ -47,25 +47,6 @@ module.exports = (dht) => {
 
     const response = new Message(Message.TYPES.GET_DEFACE_VALUE, key, msg.clusterLevel)
 
-    if (utils.isPublicKeyKey(key)) {
-      console.log('OOPS, should not happen')
-      // log('is public key')
-      // const id = utils.fromPublicKeyKey(key)
-      // let info
-
-      // if (dht._isSelf(id)) {
-      //   info = dht.peerInfo
-      // } else if (dht.peerBook.has(id)) {
-      //   info = dht.peerBook.get(id)
-      // }
-
-      // if (info && info.id.pubKey) {
-      //   log('returning found public key')
-      //   response.record = new Record(key, info.id.pubKey.bytes, dht.peerInfo.id)
-      //   return callback(null, response)
-      // }
-    }
-
     parallel([
       (cb) => dht._checkLocalDatastore(key, cb),
       (cb) => dht._betterPeersToQuery(msg, peer, cb)
@@ -86,14 +67,12 @@ module.exports = (dht) => {
         callback(null, response)
       } else {
         log('got record')
-        // check recaptcha
 
         const peerId = peer.id.toB58String()
         requirePeerVerification(peerId, (err) => {
           
           if (err) {
             console.log(`peer ${peerId} needs to verify identity`)
-            console.log('WMW', key)
             const value = Buffer.from(JSON.stringify({ decryptionKey: null, iv: null, status: 'recaptcha' }))
             const recaptchaRecord = new Record(key, value, dht.peerInfo.id)
             response.record = recaptchaRecord
@@ -101,7 +80,6 @@ module.exports = (dht) => {
           }
 
           response.record = record
-          console.log('still called')
           callback(null, response)
         })
 
