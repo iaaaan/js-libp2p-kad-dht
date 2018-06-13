@@ -599,10 +599,10 @@ module.exports = (dht) => ({
           return cb(null, true)
         }
 
-        const peerId = peerId.toB58String()
-        this.verifyPeer(peerId, key.toString(), (error, needsVerification) => {
+        const peerIdB58 = peerId.toB58String()
+        this.verifyPeer(peerIdB58, key.toString(), (error, needsVerification) => {
           if (error) {
-            console.log(`Error verifying peer ${peerId}: ${error}`)
+            console.log(`Error verifying peer ${peerIdB58}: ${error}`)
             cb(null, false)
           }
           cb(null, !needsVerification)
