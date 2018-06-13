@@ -9,25 +9,6 @@ const utils = require('../../utils')
 module.exports = (dht) => {
   const log = utils.logger(dht.peerInfo.id, 'rpc:get-value')
 
-  function requirePeerVerification (id, cb) {
-    console.log('verifying', id)
-    const xhr = new XMLHttpRequest()
-    const url = `https://defaceapp.herokuapp.com/user?id=${id}`
-    xhr.open("GET", url, true)
-    xhr.addEventListener('load', () => {
-      const response = JSON.parse(xhr.responseText)
-      const {
-        tickets
-      } = response
-      if (tickets > 0) {
-        cb(null)
-      } else {
-        cb(true)        
-      }
-    })
-    xhr.send()
-  }
-
   /**
    * Process `GetDefaceValue` DHT messages.
    *
@@ -69,16 +50,10 @@ module.exports = (dht) => {
         log('got record')
 
         const peerId = peer.id.toB58String()
-        requirePeerVerification(peerId, (err) => {
-          
-          if (err) {
-            console.log(`peer ${peerId} needs to verify identity`)
-            const value = Buffer.from(JSON.stringify({ decryptionKey: null, iv: null, status: 'recaptcha' }))
-            const recaptchaRecord = new Record(key, value, dht.peerInfo.id)
-            response.record = recaptchaRecord
-            return callback(null, response)
+        dht.verifyPeer(peerId, key.toString(), (error, needsVerification) => {
+          if (error || needsVerification) {
+            return callback(error || `peer ${peerId} needs to verify identity`)
           }
-
           response.record = record
           callback(null, response)
         })

@@ -583,9 +583,9 @@ module.exports = (dht) => ({
     dht.network.sendRequest(peer, msg, callback)
   },
   /**
-   * Check verification status of a peer.
+   * Check verification status of multiple peers.
    *
-   * @param {PeerId} peer
+   * @param {Array<PeerId>} peerIds
    * @param {function(Error, Array<PeerId>)} callback
    * @returns {void}
    *
@@ -599,23 +599,31 @@ module.exports = (dht) => ({
           return cb(null, true)
         }
 
-        const id = peerId.toB58String()
-        console.log('verifying', id)
-        const xhr = new XMLHttpRequest()
-        const url = `https://defaceapp.herokuapp.com/user?id=${id}`
-        xhr.open("GET", url, true)
-        xhr.addEventListener('load', () => {
-          const response = JSON.parse(xhr.responseText)
-          const {
-            tickets
-          } = response
-          cb(null, tickets > 0)
+        const peerId = peerId.toB58String()
+        this.verifyPeer(peerId, key.toString(), (error, needsVerification) => {
+          if (error) {
+            console.log(`Error verifying peer ${peerId}: ${error}`)
+            cb(null, false)
+          }
+          cb(null, !needsVerification)
         })
-        xhr.send()
       },
       (err, results) => {
         callback(null, peerIds.filter((id, j) => results[j]))
       }
     )
+  },
+  /**
+   * Check verification status of a signel peer.
+   *
+   * @param {String} id
+   * @param {String} key
+   * @param {function(Error, Boolean)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _verifyPeer (id, key, callback) {
+    return callback('No verifyPeer method loaded yet')
   }
 })
