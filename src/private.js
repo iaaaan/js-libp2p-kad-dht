@@ -600,7 +600,7 @@ module.exports = (dht) => ({
         }
 
         const peerIdB58 = peerId.toB58String()
-        this.verifyPeer(peerIdB58, key.toString(), (error, needsVerification) => {
+        dht.verifyPeer(peerIdB58, key.toString(), (error, needsVerification) => {
           if (error) {
             console.log(`Error verifying peer ${peerIdB58}: ${error}`)
             cb(null, false)
