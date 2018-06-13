@@ -591,7 +591,7 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _verifyPeers (peerIds, callback) {
+  _verifyPeers (peerIds, key, callback) {
     filterSeries(
       peerIds,
       (peerId, cb) => {
