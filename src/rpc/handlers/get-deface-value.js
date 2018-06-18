@@ -19,6 +19,8 @@ module.exports = (dht) => {
    */
   return function getDefaceValue (peer, msg, callback) {
     const key = msg.key
+    const date = msg.date
+    const signature = msg.signature
 
     log('key: %s', key)
 
@@ -26,39 +28,59 @@ module.exports = (dht) => {
       return callback(new Error('Invalid key'))
     }
 
-    const response = new Message(Message.TYPES.GET_DEFACE_VALUE, key, msg.clusterLevel)
+    if (!date || date.length === 0) {
+      return callback(new Error('Invalid date'))
+    }
 
-    parallel([
-      (cb) => dht._checkLocalDatastore(key, cb),
-      (cb) => dht._betterPeersToQuery(msg, peer, cb)
-    ], (err, res) => {
-      if (err) {
-        return callback(err)
+    if (!signature || signature.length === 0) {
+      return callback(new Error('Invalid signature'))
+    }
+
+    const keyAndDate = Buffer.concat(key, date)
+
+    peer.id.pubKey.verify(keyAndDate, signature, (error, verified) => {
+      if (error) {
+        return callback(new Error('Error verifying request'))
       }
-
-      const record = res[0]
-      const closer = res[1]
-
-      if (closer.length > 0) {
-        log('got closer %s', closer.length)
-        response.closerPeers = closer
+      
+      if (!verified) {
+        return callback(new Error('Peer could not be verified'))
       }
+      
+      const response = new Message(Message.TYPES.GET_DEFACE_VALUE, key, msg.clusterLevel)
 
-      if (!record) {
-        callback(null, response)
-      } else {
-        log('got record')
+      parallel([
+        (cb) => dht._checkLocalDatastore(key, cb),
+        (cb) => dht._betterPeersToQuery(msg, peer, cb)
+      ], (err, res) => {
+        if (err) {
+          return callback(err)
+        }
 
-        const peerId = peer.id.toB58String()
-        dht.verifyPeer(peerId, key.toString(), (error, needsVerification) => {
-          if (error || needsVerification) {
-            return callback(error || `peer ${peerId} needs to verify identity`)
-          }
-          response.record = record
+        const record = res[0]
+        const closer = res[1]
+
+        if (closer.length > 0) {
+          log('got closer %s', closer.length)
+          response.closerPeers = closer
+        }
+
+        if (!record) {
           callback(null, response)
-        })
+        } else {
+          log('got record')
 
-      }
+          const idString = peer.id.toB58String()
+          dht.verifyPeer(peer.id, key, date, signature, (error, needsVerification) => {
+            if (error || needsVerification) {
+              return callback('Could not verify peer')
+            }
+            response.record = record
+            callback(null, response)
+          })
+
+        }
+      })
     })
   }
 }

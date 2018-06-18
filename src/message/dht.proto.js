@@ -66,6 +66,14 @@ message Message {
   // adjusted Record to bytes for js
   optional bytes record = 3;
 
+  // Used for Deface verification
+  // GET_DEFACE_VALUE
+  optional bytes signature = 4;
+
+  // Used for Deface verification
+  // GET_DEFACE_VALUE
+  optional bytes date = 5;
+
   // Used to return peers closer to a key in a query
   // GET_VALUE, GET_PROVIDERS, FIND_NODE
   repeated Peer closerPeers = 8;

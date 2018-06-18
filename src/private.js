@@ -4,7 +4,7 @@ const PeerId = require('peer-id')
 const libp2pRecord = require('libp2p-record')
 const waterfall = require('async/waterfall')
 const series = require('async/series')
-const filterSeries = require('async/map')
+const filterSeries = require('async/filterSeries')
 const each = require('async/each')
 const timeout = require('async/timeout')
 const PeerInfo = require('peer-info')
@@ -290,10 +290,10 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _get (key, maxTimeout, callback) {
+  _get (key, date, signature, maxTimeout, callback) {
     dht._log('_get %s', key.toString())
     waterfall([
-      (cb) => dht.getMany(key, 16, maxTimeout, cb),
+      (cb) => dht.getMany(key, date, signature, 16, maxTimeout, cb),
       (vals, cb) => {
         const recs = vals.map((v) => v.val)
         // const i = libp2pRecord.selection.bestRecord(dht.selectors, key, recs)
@@ -382,9 +382,9 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _getValueOrPeers (peer, key, callback) {
+  _getValueOrPeers (peer, key, date, signature, callback) {
     waterfall([
-      (cb) => dht._getDefaceValueSingle(peer, key, cb),
+      (cb) => dht._getDefaceValueSingle(peer, key, date, signature, cb),
       (msg, cb) => {
         const peers = msg.closerPeers
         const record = msg.record
@@ -433,8 +433,8 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _getDefaceValueSingle (peer, key, callback) {
-    const msg = new Message(Message.TYPES.GET_DEFACE_VALUE, key, 0)
+  _getDefaceValueSingle (peer, key, date, signature, callback) {
+    const msg = new Message(Message.TYPES.GET_DEFACE_VALUE, key, 0, date, signature)
     dht.network.sendRequest(peer, msg, callback)
   },
   /**
@@ -599,18 +599,17 @@ module.exports = (dht) => ({
           return cb(null, true)
         }
 
-        const peerIdB58 = peerId.toB58String()
-        dht.verifyPeer(peerIdB58, key.toString(), (error, needsVerification) => {
-          if (error) {
-            console.log(`Error verifying peer ${peerIdB58}: ${error}`)
-            cb(null, false)
-          }
-          cb(null, !needsVerification)
-        })
+        const idString = peerId.toB58String() 
+        cb(null, false)
+        // dht.verifyPeer(peerId, key, (error, needsVerification) => {
+        //   if (error) {
+        //     console.log(`Error verifying peer ${idString}: ${error}`)
+        //     return cb(null, false)
+        //   }
+        //   return cb(null, !needsVerification)
+        // })
       },
-      (err, results) => {
-        callback(null, peerIds.filter((id, j) => results[j]))
-      }
+      callback
     )
   },
   /**
