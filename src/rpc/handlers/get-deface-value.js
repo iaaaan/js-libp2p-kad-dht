@@ -36,9 +36,7 @@ module.exports = (dht) => {
       return callback(new Error('Invalid signature'))
     }
 
-    const keyAndDate = Buffer.concat(key, date)
-
-    peer.id.pubKey.verify(keyAndDate, signature, (error, verified) => {
+    peer.id.pubKey.verify(Buffer.concat([key, date]), signature, (error, verified) => {
       if (error) {
         return callback(new Error('Error verifying request'))
       }
