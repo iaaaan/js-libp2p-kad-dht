@@ -246,7 +246,7 @@ class KadDHT {
 
           // we have peers, lets do the actualy query to them
           const query = new Query(this, key, (peer, cb) => {
-            this._getValueOrPeers(peer, key, date,signature, (err, rec, peers) => {
+            this._getValueOrPeers(peer, key, date, signature, (err, rec, peers) => {
               if (err) {
                 // If we have an invalid record we just want to continue and fetch a new one.
                 if (!(err instanceof errors.InvalidRecordError)) {

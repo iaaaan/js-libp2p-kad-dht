@@ -93,8 +93,7 @@ class Message {
    */
   static deserialize (raw) {
     const dec = pbm.Message.decode(raw)
-
-    const msg = new Message(dec.type, dec.key, dec.date, dec.signature, dec.clusterLevelRaw)
+    const msg = new Message(dec.type, dec.key, dec.clusterLevelRaw, dec.date, dec.signature)
 
     msg.closerPeers = dec.closerPeers.map(fromPbPeer)
     msg.providerPeers = dec.providerPeers.map(fromPbPeer)

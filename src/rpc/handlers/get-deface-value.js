@@ -36,15 +36,6 @@ module.exports = (dht) => {
       return callback(new Error('Invalid signature'))
     }
 
-    peer.id.pubKey.verify(Buffer.concat([key, date]), signature, (error, verified) => {
-      if (error) {
-        return callback(new Error('Error verifying request'))
-      }
-      
-      if (!verified) {
-        return callback(new Error('Peer could not be verified'))
-      }
-      
       const response = new Message(Message.TYPES.GET_DEFACE_VALUE, key, msg.clusterLevel)
 
       parallel([
@@ -71,14 +62,15 @@ module.exports = (dht) => {
           const idString = peer.id.toB58String()
           dht.verifyPeer(peer.id, key, date, signature, (error, needsVerification) => {
             if (error || needsVerification) {
-              return callback('Could not verify peer')
+              response.record = new Record(key, Buffer.from(JSON.stringify({error: 'verification error'})), dht.peerInfo.id)
+            } else {
+              response.record = record
             }
-            response.record = record
             callback(null, response)
           })
 
         }
       })
-    })
+    // })
   }
 }

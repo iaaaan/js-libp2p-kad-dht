@@ -388,6 +388,11 @@ module.exports = (dht) => ({
       (msg, cb) => {
         const peers = msg.closerPeers
         const record = msg.record
+        const error = msg.error
+
+        if (error === 'verification error') {
+          return cb(new errors.VerificationError(error))
+        }
 
         if (record) {
           // We have a record

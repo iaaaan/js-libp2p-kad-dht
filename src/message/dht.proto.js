@@ -68,11 +68,11 @@ message Message {
 
   // Used for Deface verification
   // GET_DEFACE_VALUE
-  optional bytes signature = 4;
+  optional bytes signature = 11;
 
   // Used for Deface verification
   // GET_DEFACE_VALUE
-  optional bytes date = 5;
+  optional bytes date = 7;
 
   // Used to return peers closer to a key in a query
   // GET_VALUE, GET_PROVIDERS, FIND_NODE
