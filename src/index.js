@@ -465,8 +465,7 @@ class KadDHT {
 
         waterfall([
           (cb) => utils.sortClosestPeers(Array.from(res.finalSet), id, cb),
-          (sorted, cb) => this._verifyPeers(sorted, key, cb),
-          (filtered, cb) => cb(null, filtered.slice(0, c.K))
+          (sorted, cb) => cb(null, filtered.slice(0, c.K))
         ], callback)
       })
     })

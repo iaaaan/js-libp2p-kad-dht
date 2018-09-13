@@ -1083,29 +1083,6 @@ module.exports = (dht) => ({
     dht.network.sendRequest(peer, msg, callback)
   },
   /**
-   * Check verification status of multiple peers.
-   *
-   * @param {Array<PeerId>} peerIds
-   * @param {function(Error, Array<PeerId>)} callback
-   * @returns {void}
-   *
-   * @private
-   */
-  _verifyPeers (peerIds, key, callback) {
-    filterSeries(
-      peerIds,
-      (peerId, cb) => {
-        if (peerId.isEqual(dht.peerInfo.id)) {
-          return cb(null, true)
-        }
-
-        const idString = peerId.toB58String() 
-        cb(null, false)
-      },
-      callback
-    )
-  },
-  /**
    * Check verification status of a signel peer.
    *
    * @param {String} id
