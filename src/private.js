@@ -5,6 +5,7 @@ const libp2pRecord = require('libp2p-record')
 const waterfall = require('async/waterfall')
 const series = require('async/series')
 const filterSeries = require('async/filterSeries')
+const map = require('async/map')
 const each = require('async/each')
 const timeout = require('async/timeout')
 const PeerInfo = require('peer-info')
@@ -81,7 +82,7 @@ module.exports = (dht) => ({
   },
   /**
    * Try to fetch a given record by from the local datastore.
-   * Returns the record iff it is still valid, meaning
+   * Returns the record if it is still valid, meaning
    * - it was either authored by this node, or
    * - it was receceived less than `MAX_RECORD_AGE` ago.
    *
@@ -91,8 +92,8 @@ module.exports = (dht) => ({
    *
    *@private
    */
-  _checkLocalDatastore (key, callback) {
-    dht._log('checkLocalDatastore: %s', key)
+  _checkLocalValues (key, callback) {
+    dht._log('checkLocalValues: %s', key)
     const dsKey = utils.bufferToKey(key)
 
     // 2. fetch value from ds
@@ -109,12 +110,10 @@ module.exports = (dht) => ({
           return callback(err)
         }
 
-        const rawRecord = res
-
         // 4. create record from the returned bytes
         let record
         try {
-          record = Record.deserialize(rawRecord)
+          record = Record.deserialize(res)
         } catch (err) {
           return callback(err)
         }
@@ -136,9 +135,76 @@ module.exports = (dht) => ({
           // 6. if: record is bad delete it and return
           return dht.datastore.delete(key, callback)
         }
-
+        
         //    else: return good record
-        callback(null, record)
+        return callback(null, record)
+      })
+    })
+  },
+  /**
+   * Try to fetch a given record by from the local datastore.
+   * Returns the record if it is still valid, meaning
+   * - it was either authored by this node, or
+   * - it was receceived less than `MAX_RECORD_AGE` ago.
+   *
+   * @param {Buffer} key
+   * @param {function(Error, Record)} callback
+   * @returns {undefined}
+   *
+   *@private
+   */
+  _checkLocalLogs (key, callback) {
+    // TODO: not sure how different this is from _getLocalLogs
+    dht._log('checkLocalLogs: %s', key)
+    const dsKey = utils.bufferToKey(key)
+
+    // 2. fetch value from ds
+    dht.datastore.has(dsKey, (err, exists) => {
+      if (err) {
+        return callback(err)
+      }
+      if (!exists) {
+        return callback()
+      }
+
+      dht.datastore.get(dsKey, (err, data) => {
+
+        if (err) {
+          return callback(err)
+        }
+
+        if (!(data instanceof Array)) {
+          return callback('Data not logs')
+        }
+
+        if (data.length === 0) {
+          return callback('Empty logs')
+        }
+
+        // TODO: this should probably be filter instead of filterSeries
+        filterSeries(
+          data,
+          (raw, cb) => {
+            let rec
+            try {
+              rec = Record.deserialize(raw)
+            } catch (err) {
+              dht._log('Error deserializing log: %s', err)
+              return cb(null, false)
+            }
+
+            // TODO: dht._verifyRecordLocally ?
+            return cb(null, true)
+          },
+          (error, filteredData) => {
+            if (filteredData.length === 0) {
+              return cb('All logs are invalid')
+            }
+
+            const logs = filteredData.map(raw => Record.deserialize(raw))
+            callback(null, logs)
+          }
+        )
       })
     })
   },
@@ -269,6 +335,60 @@ module.exports = (dht) => ({
     })
   },
   /**
+   * Store the given key/value pair at the peer `target`.
+   *
+   * @param {Buffer} key
+   * @param {Buffer} rec - encoded record
+   * @param {PeerId} target
+   * @param {function(Error)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _putLogsToPeer (key, rec, target, callback) {
+    const msg = new Message(Message.TYPES.PUT_LOGS, key, 0)
+    msg.record = rec
+
+    dht.network.sendRequest(target, msg, (err, resp) => {
+      if (err) {
+        return callback(err)
+      }
+
+      if (!resp.record.value.equals(Record.deserialize(rec).value)) {
+        return callback(new Error('value not put correctly'))
+      }
+
+      callback()
+    })
+  },
+  /**
+   * Store the given key/value pair at the peer `target`.
+   *
+   * @param {Buffer} key
+   * @param {Buffer} rec - encoded record
+   * @param {PeerId} target
+   * @param {function(Error)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _appendValueToPeer (key, rec, target, callback) {
+    const msg = new Message(Message.TYPES.APPEND_VALUE, key, 0)
+    msg.record = rec
+
+    dht.network.sendRequest(target, msg, (err, resp) => {
+      if (err) {
+        return callback(err)
+      }
+
+      if (!resp.record.value.equals(Record.deserialize(rec).value)) {
+        return callback(new Error('value not appended correctly'))
+      }
+
+      callback()
+    })
+  },
+  /**
    * Store the given key/value pair locally, in the datastore.
    * @param {Buffer} key
    * @param {Buffer} rec - encoded record
@@ -281,6 +401,18 @@ module.exports = (dht) => ({
     dht.datastore.put(utils.bufferToKey(key), rec, callback)
   },
   /**
+   * Store the given key/logs pair locally, in the datastore.
+   * @param {Buffer} key
+   * @param {Buffer} logsRecord
+   * @param {function(Error)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _appendLocal (key, rec, callback) {
+    dht.datastore.append(utils.bufferToKey(key), rec, callback)
+  },
+  /**
    * Get the value to the given key.
    *
    * @param {Buffer} key
@@ -290,10 +422,12 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _get (key, date, signature, maxTimeout, callback) {
+  _get (key, verification, maxTimeout, callback) {
     dht._log('_get %s', key.toString())
     waterfall([
-      (cb) => dht.getMany(key, date, signature, 16, maxTimeout, cb),
+      (cb) => {
+        return dht.getMany(key, verification, 16, maxTimeout, cb)
+      },
       (vals, cb) => {
         const recs = vals.map((v) => v.val)
         // const i = libp2pRecord.selection.bestRecord(dht.selectors, key, recs)
@@ -306,7 +440,9 @@ module.exports = (dht) => ({
 
         // Send out correction record
         waterfall([
-          (cb) => utils.createPutRecord(key, best, dht.peerInfo.id, true, cb),
+          (cb) => {
+            utils.createPutRecord(key, best, dht.peerInfo.id, true, cb)
+          },
           (fixupRec, cb) => each(vals, (v, cb) => {
             // no need to do anything
             if (v.val.equals(best)) {
@@ -324,7 +460,7 @@ module.exports = (dht) => ({
             }
 
             // send correction
-            dht._putValueToPeer(v.from, key, fixupRec, (err) => {
+            dht._putValueToPeer(key, fixupRec, v.from, (err) => {
               if (err) {
                 dht._log.error('Failed error correcting entry', err)
               }
@@ -332,6 +468,233 @@ module.exports = (dht) => ({
             })
           }, cb)
         ], (err) => cb(err, err ? null : best))
+      }
+    ], callback)
+  },
+  /**
+   * Get logs to the given key.
+   *
+   * @param {Buffer} key
+   * @param {number} maxTimeout
+   * @param {function(Error, Buffer)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _getLogs (peerId, key, maxTimeout, callback) {
+    dht._log('_getLogs %s', key.toString())
+    waterfall([
+      (cb) => dht.getManyLogs(key, 16, maxTimeout, cb),
+      (vals, cb) => {
+        // TODO: the way buffers are parsed then stringified might change their form, thus messing up signature/verification
+
+        /*
+          Log object:
+          key:"5dsFZbWsNEYuuPefomVZh9v7pNR1fe"
+          signature:{type: "Buffer", data: Array(256)}
+        */
+
+        const logsPerPeer = {}
+        vals.forEach(record => {
+          let logs
+          try {
+            const data = new Buffer(record.val).toString()
+            logs = JSON.parse(data)
+              .map(log => {
+                return {
+                  key: log.key,
+                  signature: new Buffer(log.signature.data)
+                }
+              })
+          } catch (e) {}
+          if (record.from && logs) {
+            logsPerPeer[record.from] = logs
+          }
+        })
+
+        const allLogs = Object.keys(logsPerPeer)
+          .map(peer => logsPerPeer[peer])
+          .reduce((logs, peerLogs) => logs.concat(peerLogs), [])
+          .reduce((logs, l1) => {
+            if (logs.find(l2 => l1.key === l2.key && l1.signature.equals(l2.signature))) {
+              return logs
+            }
+            return logs.concat([l1])
+          }, [])
+
+        filterSeries(
+          allLogs,
+          (record, cb) => {
+            const signedBuffer = Buffer.from(
+              JSON.stringify({
+                key: record.key,
+                verification: key
+              })
+            )
+
+            if (peerId.pubKey) {
+              // LOCAL VERIFICATION
+              peerId.pubKey.verify(signedBuffer, record.signature, (error, verified) => {
+                if (error) {
+                  return cb(null, false)
+                }
+                cb(null, verified)
+              })
+            } else {
+              // ONLINE VERIFICATION
+              waterfall(
+                [
+                  (cb) => dht.getPublicKey(peerId, cb),
+                  (publicKey, cb) => {
+                    publicKey.verify(signedBuffer, record.signature, cb)
+                  }
+                ],
+                (error, verified) => {
+                  if (error) {
+                    return cb(null, false)
+                  }
+                  cb(null, verified)
+                }
+              )
+            }
+          },
+          (error, logs) => {
+            if (error) {
+              return cb(error)
+            }
+
+            if (!logs || logs.length === 0) {
+              return cb(new errors.NotFoundError())
+            }
+
+            waterfall([
+              (cb) => utils.createLogsRecord(key, logs, dht.peerInfo.id, true, cb),
+              (fixupRec, cb) => {
+                
+                each(
+                  Object.keys(logsPerPeer),
+                  (peerId, cb) => {
+                    const peerLogs = logsPerPeer[peerId]
+
+                    // TODO optimize
+                    if (
+                      !peerLogs.find(l1 => !logs.find(l2 => l1.key === l2.key && l1.signature.equals(l2.signature))) &&
+                      !logs.find(l1 => !peerLogs.find(l2 => l1.key === l2.key && l1.signature.equals(l2.signature)))
+                    ) {
+                      // all logs match
+                      return cb()
+                    }
+
+                    // correct ourself
+                    if (dht._isSelf(peerId)) {
+                      return each(
+                        logs,
+                        (log, cb) => {
+                          const rec = Buffer.from(JSON.stringify(log))
+                          dht._appendLocal(key, rec, (err) => {
+                            if (err) {
+                              dht._log.error('Failed error correcting self', err)
+                            }
+                            cb()
+                          })
+                        },
+                        (error) => {
+                          cb(error)
+                        }
+                      )
+                    }
+
+                    // send correction
+                    dht._putLogsToPeer(key, fixupRec, peerId, (err) => {
+                      if (err) {
+                        dht._log.error('Failed error correcting entry', err)
+                      }
+                      cb()
+                    })
+
+
+
+                  },
+                  cb
+                )
+
+                // each(
+                //   vals,
+                //   (v, cb) => {
+
+                //     // TODO optimize
+                //     if (
+                //       v.val.filter(l1 => !logs.some(l2 => l1.equals(l2))).length === 0 && 
+                //       logs.filter(l1 => !v.val.some(l2 => l1.equals(l2))).length === 0 
+                //     ) {
+                //       return cb()
+                //     }
+
+                //     // correct ourself
+                //     if (dht._isSelf(v.from)) {
+                //       return each(
+                //         logs,
+                //         (log, cb) => {
+                //           dht._appendLocal(key, log, (err) => {
+                //             if (err) {
+                //               dht._log.error('Failed error correcting self', err)
+                //             }
+                //             cb()
+                //           })
+                //         },
+                //         (error) => {
+                //           cb(error)
+                //         }
+                //       )
+                //     }
+
+                //     // send correction
+                //     dht._putLogsToPeer(v.from, key, fixupRec, (err) => {
+                //       if (err) {
+                //         dht._log.error('Failed error correcting entry', err)
+                //       }
+                //       cb()
+                //     })
+                //   },
+                //   cb
+                // )
+              }
+            ], 
+            (err) => cb(err, err ? null : logs))
+
+            // Send out correction record
+            // waterfall([
+
+            //   (cb) => utils.createPutRecord(key, best, dht.peerInfo.id, true, cb),
+            //   (fixupRec, cb) => each(vals, (v, cb) => {
+            //     // no need to do anything
+                // if (v.val.equals(best)) {
+                //   return cb()
+                // }
+
+            //     // correct ourself
+            //     if (dht._isSelf(v.from)) {
+            //       return dht._putLocal(key, fixupRec, (err) => {
+            //         if (err) {
+            //           dht._log.error('Failed error correcting self', err)
+            //         }
+            //         cb()
+            //       })
+            //     }
+
+            //     // send correction
+                // dht._putValueToPeer(v.from, key, fixupRec, (err) => {
+                //   if (err) {
+                //     dht._log.error('Failed error correcting entry', err)
+                //   }
+                //   cb()
+                // })
+            //   }, cb)
+            // ], (err) => cb(err, err ? null : best))
+
+
+          }
+        )
       }
     ], callback)
   },
@@ -345,7 +708,7 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _getLocal (key, callback) {
+  _getLocalValues (key, callback) {
     dht._log('getLocal %s', key)
 
     waterfall([
@@ -370,6 +733,65 @@ module.exports = (dht) => ({
     ], callback)
   },
   /**
+   * Attempt to retrieve the logs for the given key from
+   * the local datastore.
+   *
+   * @param {Buffer} key
+   * @param {function(Error, Record)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _getLocalLogs (key, callback) {
+    dht._log('getLocal %s', key)
+
+    waterfall([
+      (cb) => dht.datastore.get(utils.bufferToKey(key), cb),
+      (data, cb) => {
+        dht._log('found %s in local datastore', key)
+
+        if (!(data instanceof Array)) {
+          return cb('Data not a log')
+        }
+
+        if (data.length === 0) {
+          return cb('Empty logs')
+        }
+
+        // TODO: this should probably be filter instead of filterSeries
+        filterSeries(
+          data,
+          (raw, cb) => {
+            let rec
+            try {
+              rec = Record.deserialize(raw)
+            } catch (err) {
+              dht._log('Error deserializing log: %s', err)
+              return cb(null, false)
+            }
+
+            dht._verifyRecordLocally(rec, (err) => {
+              if (err) {
+                dht._log('Error verifying log: %s', err)
+                return cb(null, false)
+              }
+
+              cb(null, true)
+            })
+          },
+          (error, filteredData) => {
+            if (filteredData.length === 0) {
+              return cb('All logs are invalid')
+            }
+
+            const logs = filteredData.map(raw => Record.deserialize(raw))
+            cb(null, logs)
+          }
+        )        
+      }
+    ], callback)
+  },
+  /**
    * Query a particular peer for the value for the given key.
    * It will either return the value or a list of closer peers.
    *
@@ -382,9 +804,11 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _getValueOrPeers (peer, key, date, signature, callback) {
+  _getValueOrPeers (peer, key, verification, callback) {
     waterfall([
-      (cb) => dht._getDefaceValueSingle(peer, key, date, signature, cb),
+      (cb) => {
+        return dht._getDefaceValueSingle(peer, key, verification, cb)
+      },
       (msg, cb) => {
         const peers = msg.closerPeers
         const record = msg.record
@@ -403,6 +827,63 @@ module.exports = (dht) => ({
             }
 
             return cb(null, record, peers)
+          })
+        }
+
+        if (peers.length > 0) {
+          return cb(null, null, peers)
+        }
+
+        cb(new errors.NotFoundError('Not found'))
+      }
+    ], callback)
+  },
+  /**
+   * Query a particular peer for the logs for the given key.
+   * It will either return the logs or a list of closer peers.
+   *
+   * Note: The peerbook is updated with new addresses found for the given peer.
+   *
+   * @param {PeerId} peer
+   * @param {Buffer} key
+   * @param {function(Error, Redcord, Array<PeerInfo>)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _getLogsOrPeers (peer, key, callback) {
+    waterfall([
+      (cb) => dht._getDefaceLogsSingle(peer, key, cb),
+      (msg, cb) => {
+        const peers = msg.closerPeers
+        const logs = msg.record
+        const error = msg.error
+
+        if (logs) {
+          // We have a record
+          // TODO? Really?
+
+          // let record
+          // try {
+          //   record = Record.deserialize(res)
+          // } catch (err) {
+          //   return callback(err)
+          // }
+
+          // const logs = record.toString()
+
+          // let logs
+          // try {
+          //   logs = JSON.parse(record.value.toString())
+          // }
+
+          return dht._verifyRecordOnline(logs, (err) => {
+            if (err) {
+              dht._log('invalid record received, discarded')
+              return cb(new errors.InvalidRecordError())
+            }
+
+            return cb(null, logs, peers)
           })
         }
 
@@ -438,8 +919,22 @@ module.exports = (dht) => ({
    *
    * @private
    */
-  _getDefaceValueSingle (peer, key, date, signature, callback) {
-    const msg = new Message(Message.TYPES.GET_DEFACE_VALUE, key, 0, date, signature)
+  _getDefaceValueSingle (peer, key, verification, callback) {
+    const msg = new Message(Message.TYPES.GET_DEFACE_VALUE, key, 0, verification)
+    dht.network.sendRequest(peer, msg, callback)
+  },
+  /**
+   * Get a Deface logs via rpc call for the given parameters.
+   *
+   * @param {PeerId} peer
+   * @param {Buffer} key
+   * @param {function(Error, Message)} callback
+   * @returns {void}
+   *
+   * @private
+   */
+  _getDefaceLogsSingle (peer, key, callback) {
+    const msg = new Message(Message.TYPES.GET_DEFACE_LOGS, key, 0)
     dht.network.sendRequest(peer, msg, callback)
   },
   /**
@@ -606,13 +1101,6 @@ module.exports = (dht) => ({
 
         const idString = peerId.toB58String() 
         cb(null, false)
-        // dht.verifyPeer(peerId, key, (error, needsVerification) => {
-        //   if (error) {
-        //     console.log(`Error verifying peer ${idString}: ${error}`)
-        //     return cb(null, false)
-        //   }
-        //   return cb(null, !needsVerification)
-        // })
       },
       callback
     )

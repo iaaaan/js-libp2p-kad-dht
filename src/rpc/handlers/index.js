@@ -10,7 +10,10 @@ module.exports = (dht) => {
     [T.ADD_PROVIDER]: require('./add-provider')(dht),
     [T.GET_PROVIDERS]: require('./get-providers')(dht),
     [T.PING]: require('./ping')(dht),
-    [T.GET_DEFACE_VALUE]: require('./get-deface-value')(dht)
+    [T.GET_DEFACE_VALUE]: require('./get-deface-value')(dht),
+    [T.APPEND_VALUE]: require('./append-value')(dht),
+    [T.GET_DEFACE_LOGS]: require('./get-deface-logs')(dht),
+    [T.PUT_LOGS]: require('./put-logs')(dht)
   }
 
   /**

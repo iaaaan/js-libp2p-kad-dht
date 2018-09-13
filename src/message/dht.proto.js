@@ -22,6 +22,9 @@ message Message {
     FIND_NODE = 4;
     PING = 5;
     GET_DEFACE_VALUE = 6;
+    APPEND_VALUE = 7;
+    GET_DEFACE_LOGS = 8;
+    PUT_LOGS = 9;
   }
 
   enum ConnectionType {
@@ -68,11 +71,7 @@ message Message {
 
   // Used for Deface verification
   // GET_DEFACE_VALUE
-  optional bytes signature = 11;
-
-  // Used for Deface verification
-  // GET_DEFACE_VALUE
-  optional bytes date = 7;
+  optional bytes verification = 7;
 
   // Used to return peers closer to a key in a query
   // GET_VALUE, GET_PROVIDERS, FIND_NODE

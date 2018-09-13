@@ -157,6 +157,30 @@ exports.createPutRecord = (key, value, peer, sign, callback) => {
 }
 
 /**
+ * Create a new logs record, encodes and signs it if enabled.
+ *
+ * @param {Buffer} key
+ * @param {Buffer} logs
+ * @param {PeerId} peer
+ * @param {bool} sign - Should the record be signed
+ * @param {function(Error, Buffer)} callback
+ * @returns {void}
+ */
+exports.createLogsRecord = (key, logs, peer, sign, callback) => {
+
+  const value = Buffer.from(JSON.stringify(logs))
+  const rec = new Record(key, value, peer)
+
+  if (sign) {
+    return rec.serializeSigned(peer.privKey, callback)
+  }
+
+  setImmediate(() => {
+    callback(null, rec.serialize())
+  })
+}
+
+/**
  * Creates a logger for the given subsystem
  *
  * @param {PeerId} [id]

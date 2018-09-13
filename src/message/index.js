@@ -20,23 +20,18 @@ class Message {
    * @param {Buffer} key
    * @param {number} level
    */
-  constructor (type, key, level, date, signature) {
+  constructor (type, key, level, verification) {
     if (key) {
       assert(Buffer.isBuffer(key))
     }
 
-    if (date) {
-      assert(Buffer.isBuffer(date))
+    if (verification) {
+      assert(Buffer.isBuffer(verification))
     }
     
-    if (signature) {
-      assert(Buffer.isBuffer(signature))
-    }
-
     this.type = type
     this.key = key
-    this.date = date
-    this.signature = signature
+    this.verification = verification
     this._clusterLevelRaw = level
     this.closerPeers = []
     this.providerPeers = []
@@ -66,8 +61,7 @@ class Message {
   serialize () {
     const obj = {
       key: this.key,
-      date: this.date,
-      signature: this.signature,
+      verification: this.verification,
       type: this.type,
       clusterLevelRaw: this._clusterLevelRaw,
       closerPeers: this.closerPeers.map(toPbPeer),
@@ -93,7 +87,7 @@ class Message {
    */
   static deserialize (raw) {
     const dec = pbm.Message.decode(raw)
-    const msg = new Message(dec.type, dec.key, dec.clusterLevelRaw, dec.date, dec.signature)
+    const msg = new Message(dec.type, dec.key, dec.clusterLevelRaw, dec.verification)
 
     msg.closerPeers = dec.closerPeers.map(fromPbPeer)
     msg.providerPeers = dec.providerPeers.map(fromPbPeer)

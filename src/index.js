@@ -175,6 +175,35 @@ class KadDHT {
   }
 
   /**
+   * Append the given key/value  pair to the DHT.
+   *
+   * @param {Buffer} key
+   * @param {Buffer} value
+   * @param {function(Error)} callback
+   * @returns {void}
+   */
+  append (key, value, callback) {
+    this._log('AppendValue %s', key)
+    let sign
+    try {
+      sign = libp2pRecord.validator.isSigned(this.validators, key)
+    } catch (err) {
+      return callback(err)
+    }
+
+    waterfall([
+      (cb) => utils.createPutRecord(key, value, this.peerInfo.id, sign, cb),
+      (rec, cb) => waterfall([
+        (cb) => this._appendLocal(key, rec, cb),
+        (cb) => this.getClosestPeers(key, cb),
+        (peers, cb) => each(peers, (peer, cb) => {
+          this._appendValueToPeer(key, rec, peer, cb)
+        }, cb)
+      ], cb)
+    ], callback)
+  }
+
+  /**
    * Get the value to the given key.
    * Times out after 1 minute.
    *
@@ -183,7 +212,7 @@ class KadDHT {
    * @param {function(Error, Buffer)} callback
    * @returns {void}
    */
-  get (key, date, signature, maxTimeout, callback) {
+  get (key, verification, maxTimeout, callback) {
     if (typeof maxTimeout === 'function') {
       callback = maxTimeout
       maxTimeout = null
@@ -193,7 +222,29 @@ class KadDHT {
       maxTimeout = c.minute
     }
 
-    this._get(key, date, signature, maxTimeout, callback)
+    this._get(key, verification, maxTimeout, callback)
+  }
+
+  /**
+   * Get the logs to the given key.
+   * Times out after 1 minute.
+   *
+   * @param {Buffer} key
+   * @param {number} [maxTimeout=60000] - optional timeout
+   * @param {function(Error, Buffer)} callback
+   * @returns {void}
+   */
+  getLogs (peerId, key, maxTimeout, callback) {
+    if (typeof maxTimeout === 'function') {
+      callback = maxTimeout
+      maxTimeout = null
+    }
+
+    if (maxTimeout == null) {
+      maxTimeout = c.minute
+    }
+
+    this._getLogs(peerId, key, maxTimeout, callback)
   }
 
   /**
@@ -205,7 +256,7 @@ class KadDHT {
    * @param {function(Error, Array<{from: PeerId, val: Buffer}>)} callback
    * @returns {void}
    */
-  getMany (key, date, signature, nvals, maxTimeout, callback) {
+  getMany (key, verification, nvals, maxTimeout, callback) {
     if (typeof maxTimeout === 'function') {
       callback = maxTimeout
       maxTimeout = null
@@ -217,7 +268,7 @@ class KadDHT {
     this._log('getMany %s (%s)', key, nvals)
     const vals = []
 
-    this._getLocal(key, (err, localRec) => {
+    this._getLocalValues(key, (err, localRec) => {
       if (err && nvals === 0) {
         return callback(err)
       }
@@ -246,7 +297,97 @@ class KadDHT {
 
           // we have peers, lets do the actualy query to them
           const query = new Query(this, key, (peer, cb) => {
-            this._getValueOrPeers(peer, key, date, signature, (err, rec, peers) => {
+            this._getValueOrPeers(peer, key, verification, (err, rec, peers) => {
+              if (err) {
+                // If we have an invalid record we just want to continue and fetch a new one.
+                if (!(err instanceof errors.InvalidRecordError)) {
+                  return cb(err)
+                }
+              }
+
+              const res = { closerPeers: peers }
+
+              if ((rec && rec.value) ||
+                  err instanceof errors.InvalidRecordError) {
+                vals.push({
+                  val: rec && rec.value,
+                  from: peer
+                })
+              }
+
+              // enough is enough
+              if (vals.length >= nvals) {
+                res.success = true
+              }
+
+              cb(null, res)
+            })
+          })
+
+          // run our query
+          timeout((cb) => query.run(rtp, cb), maxTimeout)(cb)
+        }
+      ], (err) => {
+        if (err && vals.length === 0) {
+          return callback(err)
+        }
+
+        callback(null, vals)
+      })
+    })
+  }
+
+  /**
+   * Get the `n` logs to the given key without sorting.
+   *
+   * @param {Buffer} key
+   * @param {number} nvals
+   * @param {number} [maxTimeout=60000]
+   * @param {function(Error, Array<{from: PeerId, val: Buffer}>)} callback
+   * @returns {void}
+   */
+  getManyLogs (key, nvals, maxTimeout, callback) {
+    if (typeof maxTimeout === 'function') {
+      callback = maxTimeout
+      maxTimeout = null
+    }
+    if (maxTimeout == null) {
+      maxTimeout = c.minute
+    }
+
+    this._log('getManyLogs %s (%s)', key, nvals)
+    const vals = []
+
+    this._getLocalLogs(key, (err, localLogs) => {
+      if (err && nvals === 0) {
+        return callback(err)
+      }
+
+      if (err == null) {
+        vals.push({
+          logs: localLogs,
+          from: this.peerInfo.id
+        })
+      }
+
+      if (nvals <= 1) {
+        return callback(null, vals)
+      }
+
+      waterfall([
+        (cb) => utils.convertBuffer(key, cb),
+        (id, cb) => {
+          const rtp = this.routingTable.closestPeers(id, c.ALPHA)
+
+          this._log('peers in rt: %d', rtp.length)
+          if (rtp.length === 0) {
+            this._log.error('No peers from routing table!')
+            return cb(new Error('Failed to lookup key'))
+          }
+
+          // we have peers, lets do the actualy query to them
+          const query = new Query(this, key, (peer, cb) => {
+            this._getLogsOrPeers(peer, key, (err, rec, peers) => {
               if (err) {
                 // If we have an invalid record we just want to continue and fetch a new one.
                 if (!(err instanceof errors.InvalidRecordError)) {

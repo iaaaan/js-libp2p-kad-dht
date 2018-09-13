@@ -10,14 +10,14 @@ module.exports = (dht) => {
   const log = utils.logger(dht.peerInfo.id, 'rpc:get-value')
 
   /**
-   * Process `GetValue` DHT messages.
+   * Process `GetDefaceLogs` DHT messages.
    *
    * @param {PeerInfo} peer
    * @param {Message} msg
    * @param {function(Error, Message)} callback
    * @returns {undefined}
    */
-  return function getValue (peer, msg, callback) {
+  return function getDefaceLogs (peer, msg, callback) {
     const key = msg.key
 
     log('key: %s', key)
@@ -26,48 +26,36 @@ module.exports = (dht) => {
       return callback(new Error('Invalid key'))
     }
 
-    const response = new Message(Message.TYPES.GET_VALUE, key, msg.clusterLevel)
-
-    if (utils.isPublicKeyKey(key)) {
-      log('is public key')
-      const id = utils.fromPublicKeyKey(key)
-      let info
-
-      if (dht._isSelf(id)) {
-        info = dht.peerInfo
-      } else if (dht.peerBook.has(id)) {
-        info = dht.peerBook.get(id)
-      }
-
-      if (info && info.id.pubKey) {
-        log('returning found public key')
-        response.record = new Record(key, info.id.pubKey.bytes, dht.peerInfo.id)
-        return callback(null, response)
-      }
-    }
+    const response = new Message(Message.TYPES.GET_DEFACE_LOGS, key, msg.clusterLevel)
 
     parallel([
-      (cb) => dht._checkLocalValues(key, cb),
+      (cb) => dht._checkLocalLogs(key, cb),
       (cb) => dht._betterPeersToQuery(msg, peer, cb)
     ], (err, res) => {
       if (err) {
         return callback(err)
       }
 
-      const record = res[0]
+      const logs = res[0]
       const closer = res[1]
-
-      if (record) {
-        log('got record')
-        response.record = record
-      }
 
       if (closer.length > 0) {
         log('got closer %s', closer.length)
         response.closerPeers = closer
       }
 
-      callback(null, response)
+      if (!logs) {
+        callback(null, response)
+      } else {
+        log('got logs')
+
+        // TODO: robust parsing
+        const data = logs.map(log => JSON.parse(log.value.toString()))
+        const value = Buffer.from(JSON.stringify(data))
+        response.record = new Record(key, value, dht.peerInfo.id)
+
+        callback(null, response)
+      }
     })
   }
 }

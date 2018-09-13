@@ -216,7 +216,9 @@ function writeReadMessage (conn, msg, callback) {
     pull.values([msg]),
     lp.encode(),
     conn,
-    pull.filter((msg) => msg.length < c.maxMessageSize),
+    pull.filter((msg) => {
+      return msg.length < c.maxMessageSize
+    }),
     lp.decode(),
     pull.collect((err, res) => {
       if (err) {
