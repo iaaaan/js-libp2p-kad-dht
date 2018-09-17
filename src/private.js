@@ -21,6 +21,25 @@ const Record = libp2pRecord.Record
 
 module.exports = (dht) => ({
   /**
+   *
+   */
+  _ping (peer, callback) {
+    // TODO
+    const msg = new Message(Message.TYPES.PING, null, 0)
+    dht.network.sendRequest(peer, msg, (error, res) => {
+      let verification
+      if (!res.verification) {
+        return callback()
+      }
+      try {
+        verification = JSON.parse(res.verification.toString())
+      } catch (error) {
+        return callback()
+      }
+      callback(null, verification)
+    })
+  },
+  /**
    * Returns the routing tables closest peers, for the key of
    * the message.
    *

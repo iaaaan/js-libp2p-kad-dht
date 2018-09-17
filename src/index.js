@@ -49,7 +49,15 @@ class KadDHT {
      *
      * @type {number}
      */
-    this.kBucketSize = options.kBucketSize || 20
+    // this.kBucketSize = options.kBucketSize || 20
+    this.kBucketSize = 1
+
+    /**
+     * k-bucket number of nodes to ping, defaults to 3
+     *
+     * @type {number}
+     */
+    this.kBucketNodesToPing = options.kBucketNodesToPing || 3
 
     /**
      * Number of closest peers to return on kBucket search, default 6
@@ -63,7 +71,7 @@ class KadDHT {
      *
      * @type {RoutingTable}
      */
-    this.routingTable = new RoutingTable(this.peerInfo.id, this.kBucketSize)
+    this.routingTable = new RoutingTable(this.peerInfo.id, this.kBucketSize, this.kBucketNodesToPing, this)
 
     /**
      * Reference to the datastore, uses an in-memory store if none given.

@@ -1,5 +1,6 @@
 'use strict'
 
+const Message = require('../../message')
 const utils = require('../../utils')
 
 module.exports = (dht) => {
@@ -15,6 +16,13 @@ module.exports = (dht) => {
    */
   return function ping (peer, msg, callback) {
     log('from %s', peer.id.toB58String())
-    callback(null, msg)
+
+    const response = new Message(Message.TYPES.PING, null, msg.clusterLevel)
+    const verification = dht.getVerification()
+    if (verification) {
+      response.verification = Buffer.from(JSON.stringify(verification))
+    }
+
+    return callback(null, response)
   }
 }

@@ -107,6 +107,7 @@ class Network {
       return this._log.error('Network is offline')
     }
 
+
     this.dht.switch.dial(peer, c.PROTOCOL_DHT, (err, conn) => {
       if (err) {
         return this._log('%s does not support protocol: %s', peer.id.toB58String(), c.PROTOCOL_DHT)
@@ -115,13 +116,19 @@ class Network {
       // TODO: conn.close()
       pull(pull.empty(), conn)
 
-      this.dht._add(peer, (err) => {
-        if (err) {
-          return this._log.error('Failed to add to the routing table', err)
-        }
+      // TOOD: WATERFALL
 
-        this._log('added to the routing table: %s', peer.id.toB58String())
+      this.dht._ping(peer.id, (err, token) => {
+        console.log('WOW', err, token)
+        this.dht._add(peer, (err) => {
+          if (err) {
+            return this._log.error('Failed to add to the routing table', err)
+          }
+
+          this._log('added to the routing table: %s', peer.id.toB58String())
+        })
       })
+
     })
   }
 

@@ -1,6 +1,9 @@
 'use strict'
 
 const KBucket = require('k-bucket')
+const map = require('async/map')
+const waterfall = require('async/waterfall')
+const filterSeries = require('async/filterSeries')
 
 const utils = require('./utils')
 
@@ -12,10 +15,12 @@ class RoutingTable {
   /**
    * @param {PeerId} self
    * @param {number} kBucketSize
+   * @param {number} numberOfNodesToPing
    */
-  constructor (self, kBucketSize) {
+  constructor (self, kBucketSize, numberOfNodesToPing, dht) {
     this.self = self
     this._onPing = this._onPing.bind(this)
+    this.dht = dht
 
     utils.convertPeerId(self, (err, selfKey) => {
       if (err) {
@@ -25,7 +30,7 @@ class RoutingTable {
       this.kb = new KBucket({
         localNodeId: selfKey,
         numberOfNodesPerKBucket: kBucketSize,
-        numberOfNodesToPing: 1
+        numberOfNodesToPing
       })
 
       this.kb.on('ping', this._onPing)
@@ -47,14 +52,58 @@ class RoutingTable {
    * @private
    */
   _onPing (oldContacts, newContact) {
-    // just use the first one (k-bucket sorts from oldest to newest)
-    const oldest = oldContacts[0]
+    console.log('_onPing')
+    const peers = oldContacts.map(contact => contact.peer)
 
-    // remove the oldest one
-    this.kb.remove(oldest.id)
+    waterfall(
+      [
+        this.dht.getServerPublicKey,
+        (serverPublicKey, callback) => {
+          map(
+            peers,
+            this.dht._ping,
+            (error, tokens) => {
+              if (error) {
+                return callback(error)
+              }
+              filterSeries(
+                tokens,
+                (token, callback) => {
+                  const signedBuffer = Buffer.from(JSON.stringify({token.id, token.date}))
+                  const signatureBuffer = new Buffer(signature.data)
+                  serverPublicKey.verify(signedBuffer, signatureBuffer, callback)
+                },
+                callback
+              )
+            }
+          )
+        },
+        (verifiedTokens, callback) => {
+          const verifiedIds = {}
+          verifiedTokens.forEach(token => {
+            verifiedIds[token.id] = token.date
+          })
 
-    // add the new one
-    this.kb.add(newContact)
+          const tokenLessPeers = oldContacts.filter(contact => !verifiedIds[contact.peer.toB58String()])
+          if (tokenLessPeers.length > 0) {
+            return callback(null, tokenLessPeers[0])
+          }
+
+          const peers = oldContacts.filter(contact => verifiedIds[contact.peer.toB58String()])
+            .sort((p1, p2) => verifiedIds[p2.peer.toB58String()] - verifiedIds[p1.peer.toB58String()])
+        }
+      ],
+      (error, contact) => {
+        if (error) {
+          return console.log('DHT ping failed:', error)
+        }
+
+        console.log('REMOVING', contact)
+
+        this.kb.remove(contact.id)
+        this.kb.add(newContact)
+      }
+    )    
   }
 
   // -- Public Interface
