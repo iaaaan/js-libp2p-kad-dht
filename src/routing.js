@@ -69,7 +69,7 @@ class RoutingTable {
               filterSeries(
                 tokens,
                 (token, callback) => {
-                  const signedBuffer = Buffer.from(JSON.stringify({token.id, token.date}))
+                  const signedBuffer = Buffer.from(JSON.stringify({id: token.id, date: token.date}))
                   const signatureBuffer = new Buffer(signature.data)
                   serverPublicKey.verify(signedBuffer, signatureBuffer, callback)
                 },
