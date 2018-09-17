@@ -24,11 +24,10 @@ module.exports = (dht) => ({
    *
    */
   _ping (peer, callback) {
-    // TODO
     const msg = new Message(Message.TYPES.PING, null, 0)
     dht.network.sendRequest(peer, msg, (error, res) => {
       let verification
-      if (!res.verification) {
+      if (!res || !res.verification) {
         return callback()
       }
       try {

@@ -52,9 +52,7 @@ class RoutingTable {
    * @private
    */
   _onPing (oldContacts, newContact) {
-    console.log('_onPing')
     const peers = oldContacts.map(contact => contact.peer)
-
     waterfall(
       [
         this.dht.getServerPublicKey,
@@ -66,11 +64,14 @@ class RoutingTable {
               if (error) {
                 return callback(error)
               }
+
+              tokens = tokens.filter(token => token)
+
               filterSeries(
                 tokens,
                 (token, callback) => {
                   const signedBuffer = Buffer.from(JSON.stringify({id: token.id, date: token.date}))
-                  const signatureBuffer = new Buffer(signature.data)
+                  const signatureBuffer = new Buffer(token.signature.data)
                   serverPublicKey.verify(signedBuffer, signatureBuffer, callback)
                 },
                 callback
@@ -90,16 +91,15 @@ class RoutingTable {
           }
 
           const peers = oldContacts.filter(contact => verifiedIds[contact.peer.toB58String()])
-            .sort((p1, p2) => verifiedIds[p2.peer.toB58String()] - verifiedIds[p1.peer.toB58String()])
+            .sort((p1, p2) => verifiedIds[p1.peer.toB58String()] - verifiedIds[p2.peer.toB58String()])
+          callback(null, peers[0])
         }
       ],
       (error, contact) => {
         if (error) {
           return console.log('DHT ping failed:', error)
         }
-
-        console.log('REMOVING', contact)
-
+        // TODO: queue up contacts to add and remove to avoid race condition
         this.kb.remove(contact.id)
         this.kb.add(newContact)
       }

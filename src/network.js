@@ -4,6 +4,7 @@ const pull = require('pull-stream')
 const timeout = require('async/timeout')
 const lp = require('pull-length-prefixed')
 const setImmediate = require('async/setImmediate')
+const waterfall = require('async/waterfall')
 
 const rpc = require('./rpc')
 const c = require('./constants')
@@ -107,7 +108,6 @@ class Network {
       return this._log.error('Network is offline')
     }
 
-
     this.dht.switch.dial(peer, c.PROTOCOL_DHT, (err, conn) => {
       if (err) {
         return this._log('%s does not support protocol: %s', peer.id.toB58String(), c.PROTOCOL_DHT)
@@ -116,19 +116,39 @@ class Network {
       // TODO: conn.close()
       pull(pull.empty(), conn)
 
-      // TOOD: WATERFALL
+      waterfall(
+        [
+          this.dht.getServerPublicKey,
+          (serverPublicKey, callback) => {
+            this.dht._ping(peer.id, (err, token) => {
+              if (Date.now() - token.date > 1000 * 60 * 60 * 24) {
+                return callback(null, false)
+              }
 
-      this.dht._ping(peer.id, (err, token) => {
-        console.log('WOW', err, token)
-        this.dht._add(peer, (err) => {
-          if (err) {
-            return this._log.error('Failed to add to the routing table', err)
+              const signedBuffer = Buffer.from(JSON.stringify({id: token.id, date: token.date}))
+              const signatureBuffer = new Buffer(token.signature.data)
+              serverPublicKey.verify(signedBuffer, signatureBuffer, callback)
+            })
+          }
+        ],
+        (error, verified) => {
+          if (error) {
+            return console.log('DHT ping failed on peer connection:', error)
           }
 
-          this._log('added to the routing table: %s', peer.id.toB58String())
-        })
-      })
+          if (!verified) {
+            return this._log.error('Newly connected peer did not provide proper verification')
+          }
 
+          this.dht._add(peer, (err) => {
+            if (err) {
+              return this._log.error('Failed to add to the routing table', err)
+            }
+
+            this._log('added to the routing table: %s', peer.id.toB58String())
+          })
+        }
+      )
     })
   }
 
