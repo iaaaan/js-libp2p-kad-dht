@@ -3,6 +3,8 @@
 const libp2pRecord = require('libp2p-record')
 const MemoryStore = require('interface-datastore').MemoryDatastore
 const waterfall = require('async/waterfall')
+const map = require('async/map')
+const filterSeries = require('async/filterSeries')
 const each = require('async/each')
 const timeout = require('async/timeout')
 const PeerId = require('peer-id')
@@ -175,9 +177,64 @@ class KadDHT {
       (rec, cb) => waterfall([
         (cb) => this._putLocal(key, rec, cb),
         (cb) => this.getClosestPeers(key, cb),
-        (peers, cb) => each(peers, (peer, cb) => {
-          this._putValueToPeer(key, rec, peer, cb)
-        }, cb)
+        (peers, cb) => {
+          // TODO: make own fuction to dedupe with routingTalbe._onPing()
+          waterfall(
+            [
+              this.getServerPublicKey,
+              (serverPublicKey, callback) => {
+                map(
+                  peers,
+                  this._ping,
+                  (error, tokens) => {
+                    if (error) {
+                      return callback(error)
+                    }
+
+                    tokens = tokens.filter(token => token)
+
+                    filterSeries(
+                      tokens,
+                      (token, callback) => {
+                        const signedBuffer = Buffer.from(JSON.stringify({id: token.id, date: token.date}))
+                        const signatureBuffer = new Buffer(token.signature.data)
+                        serverPublicKey.verify(signedBuffer, signatureBuffer, (error, verified) => {
+                          if (error) {
+                            return callback(null, false)
+                          }
+                          callback(null, verified)
+                        })
+                      },
+                      (error, verifiedTokens) => {
+                        if (error) {
+                          return callback(error)
+                        }
+
+                        const verifiedIds = {}
+                        verifiedTokens.forEach(token => {
+                          verifiedIds[token.id] = token.date
+                        })
+
+                        const verifiedPeers = peers.filter(peer => {
+                          const id = peer.toB58String()
+                          const date = verifiedIds[id]
+                          return date && Date.now() - date < 1000 * 60 * 60 * 24
+                        })
+                        callback(null, verifiedPeers)
+                      }
+                    )
+                  }
+                )
+              }
+            ],
+            cb
+          )
+        },
+        (peers, cb) => {
+          each(peers, (peer, cb) => {
+            this._putValueToPeer(key, rec, peer, cb)
+          }, cb)
+        }
       ], cb)
     ], callback)
   }
@@ -473,7 +530,7 @@ class KadDHT {
 
         waterfall([
           (cb) => utils.sortClosestPeers(Array.from(res.finalSet), id, cb),
-          (sorted, cb) => cb(null, filtered.slice(0, c.K))
+          (sorted, cb) => cb(null, sorted.slice(0, c.K))
         ], callback)
       })
     })

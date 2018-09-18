@@ -629,88 +629,12 @@ module.exports = (dht) => ({
                       }
                       cb()
                     })
-
-
-
                   },
                   cb
                 )
-
-                // each(
-                //   vals,
-                //   (v, cb) => {
-
-                //     // TODO optimize
-                //     if (
-                //       v.val.filter(l1 => !logs.some(l2 => l1.equals(l2))).length === 0 && 
-                //       logs.filter(l1 => !v.val.some(l2 => l1.equals(l2))).length === 0 
-                //     ) {
-                //       return cb()
-                //     }
-
-                //     // correct ourself
-                //     if (dht._isSelf(v.from)) {
-                //       return each(
-                //         logs,
-                //         (log, cb) => {
-                //           dht._appendLocal(key, log, (err) => {
-                //             if (err) {
-                //               dht._log.error('Failed error correcting self', err)
-                //             }
-                //             cb()
-                //           })
-                //         },
-                //         (error) => {
-                //           cb(error)
-                //         }
-                //       )
-                //     }
-
-                //     // send correction
-                //     dht._putLogsToPeer(v.from, key, fixupRec, (err) => {
-                //       if (err) {
-                //         dht._log.error('Failed error correcting entry', err)
-                //       }
-                //       cb()
-                //     })
-                //   },
-                //   cb
-                // )
               }
             ], 
             (err) => cb(err, err ? null : logs))
-
-            // Send out correction record
-            // waterfall([
-
-            //   (cb) => utils.createPutRecord(key, best, dht.peerInfo.id, true, cb),
-            //   (fixupRec, cb) => each(vals, (v, cb) => {
-            //     // no need to do anything
-                // if (v.val.equals(best)) {
-                //   return cb()
-                // }
-
-            //     // correct ourself
-            //     if (dht._isSelf(v.from)) {
-            //       return dht._putLocal(key, fixupRec, (err) => {
-            //         if (err) {
-            //           dht._log.error('Failed error correcting self', err)
-            //         }
-            //         cb()
-            //       })
-            //     }
-
-            //     // send correction
-                // dht._putValueToPeer(v.from, key, fixupRec, (err) => {
-                //   if (err) {
-                //     dht._log.error('Failed error correcting entry', err)
-                //   }
-                //   cb()
-                // })
-            //   }, cb)
-            // ], (err) => cb(err, err ? null : best))
-
-
           }
         )
       }
