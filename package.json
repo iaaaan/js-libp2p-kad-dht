@@ -42,7 +42,7 @@
     "debug": "^3.1.0",
     "hashlru": "^2.2.1",
     "heap": "^0.2.6",
-    "interface-datastore": "file:../interface-datastore",
+    "interface-datastore": "git+https://github.com/iaaaan/interface-datastore",
     "k-bucket": "^4.0.0",
     "libp2p-crypto": "~0.13.0",
     "libp2p-record": "~0.5.1",

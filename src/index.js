@@ -178,7 +178,7 @@ class KadDHT {
         (cb) => this._putLocal(key, rec, cb),
         (cb) => this.getClosestPeers(key, cb),
         (peers, cb) => {
-          // TODO: make own fuction to dedupe with routingTalbe._onPing()
+          // TODO: turn next commands into its own function to dedupe with routingTalbe._onPing()
           waterfall(
             [
               this.getServerPublicKey,
